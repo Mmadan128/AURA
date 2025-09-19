@@ -1,0 +1,43 @@
+
+# AURA Test Document
+
+## What is AURA?
+AURA (Autonomous, Multimodal Campus Assistant) is an AI-powered document query system.
+
+## Features
+- Document processing for PDFs and images
+- Conversational memory across sessions
+- Multilingual support with automatic language detection
+- Audio generation for responses
+- Real-time streaming responses
+
+## Technical Stack
+- Backend: FastAPI with Python
+- Frontend: Streamlit
+- AI: LangChain + Google Gemini
+- Vector Database: FAISS
+- Embeddings: Sentence Transformers
+
+## How to Use
+1. Place your documents in the pdfs/ or images/ folder
+2. Start the backend server
+3. Launch the Streamlit frontend
+4. Ask questions about your documents
+
+## Machine Learning Concepts
+Machine learning is a subset of artificial intelligence that enables computers to learn and make decisions from data without being explicitly programmed for every task.
+
+### Types of Machine Learning:
+1. **Supervised Learning**: Learning with labeled examples
+2. **Unsupervised Learning**: Finding patterns in unlabeled data  
+3. **Reinforcement Learning**: Learning through interaction and feedback
+
+### Common Applications:
+- Natural Language Processing
+- Computer Vision
+- Recommendation Systems
+- Autonomous Vehicles
+- Medical Diagnosis
+
+This document serves as a test case for AURA's document processing capabilities.
+        

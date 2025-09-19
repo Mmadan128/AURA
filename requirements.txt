@@ -1,0 +1,33 @@
+# Core AI and ML libraries
+langchain-huggingface
+langchain-google-genai
+langchain-community
+langchain
+langchain-core
+sentence-transformers
+faiss-cpu>=1.8.0
+google-generativeai
+
+# Document processing
+unstructured[pdf]
+unstructured[local-inference]
+pillow
+
+# Language and audio
+langdetect
+gtts
+pycountry
+
+# Web framework and API
+fastapi
+uvicorn[standard]
+requests
+pydantic
+
+# Streamlit and UI
+streamlit
+streamlit-mic-recorder
+
+# Utilities
+python-dotenv
+python-multipart
