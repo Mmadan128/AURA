@@ -71,7 +71,7 @@ async def startup_event():
         
         aura_core.initialize_models()
         
-        # Try to load existing vector DB or build new one
+    
         success = aura_core.build_or_load_vector_db(progress_callback=update_build_progress)
         if not success:
             initialization_status = {

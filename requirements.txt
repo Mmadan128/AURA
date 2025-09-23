@@ -26,8 +26,6 @@ pydantic
 
 # Streamlit and UI
 streamlit
-streamlit-mic-recorder
 
 # Utilities
 python-dotenv
-python-multipart
