@@ -20,16 +20,20 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 class AURACore:
     """Core AI functionality for Project AURA"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], google_api_key: Optional[str] = None):
         self.config = config
         self.embeddings = None
         self.chat_model = None
         self.vectordb = None
         self.retriever = None
         self.memories = {}  # Store memories per session
+        self.google_api_key = google_api_key # Store the API key
         
     def initialize_models(self):
         """Initialize the AI models"""
+        if not self.google_api_key and not self.config['gemini_api_key']:
+            raise ValueError("GOOGLE_API_KEY is not provided.")
+
         self.embeddings = HuggingFaceEmbeddings(
             model_name=self.config['hf_embed_model']
         )
@@ -43,7 +47,7 @@ class AURACore:
         
         self.chat_model = ChatGoogleGenerativeAI(
             model=self.config['gemini_model'],
-            google_api_key=self.config['gemini_api_key'],
+            google_api_key=self.google_api_key or self.config['gemini_api_key'],
             temperature=0.4,
             safety_settings=safety_settings
         )

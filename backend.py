@@ -71,7 +71,7 @@ async def startup_event():
         
         aura_core.initialize_models()
         
-    
+        # Try to load existing vector DB or build new one
         success = aura_core.build_or_load_vector_db(progress_callback=update_build_progress)
         if not success:
             initialization_status = {
@@ -281,4 +281,4 @@ async def get_build_progress():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=8000)
