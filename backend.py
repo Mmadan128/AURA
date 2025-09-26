@@ -34,7 +34,7 @@ CONFIG = {
     "image_folder": "images",
     "faiss_index_dir": "faiss_index",
     "hf_embed_model": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-    "gemini_model": "gemini-1.5-flash",
+    "gemini_model": "gemini-2.0-flash",
 }
 
 # Initialize AURA Core
