@@ -15,10 +15,13 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI(title="AURA Backend API", version="1.0.0")
 
+# Get frontend URL from environment variable (fallback to localhost for development)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
