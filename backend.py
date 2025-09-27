@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List
 import os
 import json
 import uuid
-import asyncio
+import threading
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -15,7 +15,7 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI(title="AURA Backend API", version="1.0.0")
 
-# Get frontend URL from environment variable (fallback to localhost for development)
+# Get frontend URL from environment variable
 FRONTEND_URL = os.getenv("FRONTEND_URL", "*")
 
 # Add CORS middleware
@@ -37,12 +37,12 @@ CONFIG = {
     "gemini_model": "gemini-2.0-flash",
 }
 
-# Global variables for tracking initialization
+# Global variables
+aura_core = None
 initialization_status = {"initialized": False, "error": None, "initializing": False}
 build_progress = {"current": 0, "total": 0, "file": "", "completed": False}
-aura_core = None
 
-# Pydantic models for API
+# Pydantic models
 class ChatMessage(BaseModel):
     message: str
     session_id: Optional[str] = None
@@ -57,11 +57,6 @@ class AudioRequest(BaseModel):
     text: str
     lang_code: str = 'en'
 
-class IndexBuildStatus(BaseModel):
-    status: str
-    message: str
-    progress: Optional[Dict[str, Any]] = None
-
 def update_build_progress(current: int, total: int, filename: str):
     """Callback to update build progress"""
     global build_progress
@@ -72,131 +67,144 @@ def update_build_progress(current: int, total: int, filename: str):
         "completed": False
     })
 
-async def initialize_aura_core():
-    """Initialize AURA Core asynchronously"""
-    global initialization_status, aura_core
+def initialize_aura_background():
+    """Initialize AURA Core in background thread"""
+    global aura_core, initialization_status
     
-    if initialization_status["initializing"]:
-        return
-    
+    print("Starting background initialization...")
     initialization_status["initializing"] = True
     
     try:
-        print("Starting AURA Core initialization...")
-        
         if not CONFIG["gemini_api_key"]:
             raise ValueError("GOOGLE_API_KEY not found in environment variables")
         
-        # Import here to catch import errors
+        print("Importing AURACore...")
         from ai_core import AURACore
+        
+        print("Creating AURACore instance...")
         aura_core = AURACore(CONFIG, google_api_key=CONFIG["gemini_api_key"])
         
-        print("Initializing AI models...")
+        print("Initializing models...")
         aura_core.initialize_models()
         
+        print("Creating directories...")
+        os.makedirs(CONFIG["pdf_folder"], exist_ok=True)
+        os.makedirs(CONFIG["image_folder"], exist_ok=True)
+        os.makedirs(CONFIG["faiss_index_dir"], exist_ok=True)
+        
         print("Building/loading vector database...")
-        # Run this in a thread to avoid blocking
-        success = await asyncio.get_event_loop().run_in_executor(
-            None, 
-            lambda: aura_core.build_or_load_vector_db(progress_callback=update_build_progress)
-        )
+        success = aura_core.build_or_load_vector_db(progress_callback=update_build_progress)
         
-        if not success:
-            initialization_status = {
-                "initialized": False, 
-                "error": "No documents found to process",
-                "initializing": False
-            }
-            return
+        if success:
+            print("Getting retriever...")
+            aura_core.get_retriever()
+            initialization_status = {"initialized": True, "error": None, "initializing": False}
+            build_progress["completed"] = True
+            print("✅ AURA Core initialized successfully!")
+        else:
+            error_msg = "No documents found to process. Please add documents to pdfs/ or images/ folder."
+            initialization_status = {"initialized": False, "error": error_msg, "initializing": False}
+            print(f"❌ {error_msg}")
             
-        print("Getting retriever...")
-        aura_core.get_retriever()
-        
-        initialization_status = {"initialized": True, "error": None, "initializing": False}
-        build_progress["completed"] = True
-        
-        print("AURA Core initialization completed successfully!")
-        
-    except ImportError as e:
-        error_msg = f"Failed to import ai_core: {str(e)}"
-        print(f"Import error: {error_msg}")
-        initialization_status = {"initialized": False, "error": error_msg, "initializing": False}
     except Exception as e:
         error_msg = f"Initialization failed: {str(e)}"
-        print(f"Initialization error: {error_msg}")
+        print(f"❌ {error_msg}")
         initialization_status = {"initialized": False, "error": error_msg, "initializing": False}
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the AI models on startup"""
-    # Start initialization in background to not block startup
-    asyncio.create_task(initialize_aura_core())
+    """Start background initialization without blocking"""
+    print("🚀 FastAPI startup - starting background initialization...")
+    
+    # Start initialization in a separate thread
+    init_thread = threading.Thread(target=initialize_aura_background)
+    init_thread.daemon = True
+    init_thread.start()
+    
+    print("✅ FastAPI startup completed - initialization running in background")
 
 @app.get("/")
 async def root():
-    return {"message": "AURA Backend API is running"}
+    return {
+        "message": "AURA Backend API is running",
+        "version": "1.0.0",
+        "status": "healthy"
+    }
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {
-        "status": "healthy" if initialization_status["initialized"] else "initializing",
-        "initialized": initialization_status["initialized"],
-        "initializing": initialization_status.get("initializing", False),
-        "error": initialization_status["error"]
+        "status": "healthy",
+        "server_running": True,
+        "api_key_configured": bool(CONFIG["gemini_api_key"]),
+        "folders_exist": {
+            "pdfs": os.path.exists(CONFIG["pdf_folder"]),
+            "images": os.path.exists(CONFIG["image_folder"]),
+            "faiss_index": os.path.exists(CONFIG["faiss_index_dir"])
+        },
+        "aura_status": {
+            "initialized": initialization_status["initialized"],
+            "initializing": initialization_status["initializing"],
+            "error": initialization_status.get("error")
+        },
+        "build_progress": build_progress
     }
 
 @app.get("/init-status")
 async def get_init_status():
-    """Get initialization status"""
+    """Get detailed initialization status"""
     return {
         "initialized": initialization_status["initialized"],
-        "initializing": initialization_status.get("initializing", False),
+        "initializing": initialization_status["initializing"],
         "error": initialization_status["error"],
         "build_progress": build_progress
     }
 
 @app.post("/initialize")
 async def manual_initialize():
-    """Manually trigger initialization"""
-    if not initialization_status["initialized"] and not initialization_status.get("initializing", False):
-        asyncio.create_task(initialize_aura_core())
-        return {"message": "Initialization started"}
+    """Manually trigger initialization if not started"""
+    if not initialization_status["initialized"] and not initialization_status["initializing"]:
+        init_thread = threading.Thread(target=initialize_aura_background)
+        init_thread.daemon = True
+        init_thread.start()
+        return {"message": "Initialization started in background"}
     elif initialization_status["initialized"]:
         return {"message": "Already initialized"}
     else:
-        return {"message": "Initialization in progress"}
+        return {"message": "Initialization already in progress"}
 
 @app.post("/chat")
 async def chat_endpoint(chat_message: ChatMessage):
     """Main chat endpoint"""
     if not initialization_status["initialized"]:
-        if initialization_status.get("initializing", False):
+        if initialization_status["initializing"]:
             raise HTTPException(
-                status_code=503, 
-                detail="System is still initializing. Please wait and try again."
+                status_code=503,
+                detail="System is still initializing. Please wait and try again in a few moments."
             )
         else:
             raise HTTPException(
-                status_code=503, 
-                detail=f"System not initialized: {initialization_status['error']}"
+                status_code=503,
+                detail=f"System not initialized: {initialization_status.get('error', 'Unknown error')}"
             )
+    
+    if not aura_core:
+        raise HTTPException(status_code=503, detail="AURA Core not available")
     
     try:
         # Generate session ID if not provided
         session_id = chat_message.session_id or str(uuid.uuid4())
         
-        # Generate response (collect all chunks)
+        # Generate response
         response_chunks = []
         for chunk in aura_core.generate_response(chat_message.message, session_id):
             response_chunks.append(chunk)
         
         full_response = ''.join(response_chunks)
         
-        # Get sources
+        # Get sources and detect language
         sources = aura_core.get_retrieved_documents(chat_message.message)
-        
-        # Detect language
         lang_code, language_name = aura_core.detect_language(chat_message.message)
         
         return ChatResponse(
@@ -212,14 +220,13 @@ async def chat_endpoint(chat_message: ChatMessage):
 @app.post("/chat/stream")
 async def chat_stream_endpoint(chat_message: ChatMessage):
     """Streaming chat endpoint"""
-    if not initialization_status["initialized"]:
+    if not initialization_status["initialized"] or not aura_core:
         raise HTTPException(
-            status_code=503, 
-            detail=f"System not initialized: {initialization_status['error']}"
+            status_code=503,
+            detail="System not ready for streaming"
         )
     
     try:
-        # Generate session ID if not provided
         session_id = chat_message.session_id or str(uuid.uuid4())
         
         def generate_stream():
@@ -235,11 +242,8 @@ async def chat_stream_endpoint(chat_message: ChatMessage):
 @app.post("/generate-audio")
 async def generate_audio_endpoint(audio_request: AudioRequest):
     """Generate audio from text"""
-    if not initialization_status["initialized"]:
-        raise HTTPException(
-            status_code=503, 
-            detail=f"System not initialized: {initialization_status['error']}"
-        )
+    if not initialization_status["initialized"] or not aura_core:
+        raise HTTPException(status_code=503, detail="System not ready")
     
     try:
         audio_bytes = aura_core.generate_audio(
@@ -248,10 +252,7 @@ async def generate_audio_endpoint(audio_request: AudioRequest):
         )
         
         if audio_bytes is None:
-            raise HTTPException(
-                status_code=500, 
-                detail="Failed to generate audio"
-            )
+            raise HTTPException(status_code=500, detail="Failed to generate audio")
         
         return StreamingResponse(
             iter([audio_bytes]),
@@ -265,11 +266,8 @@ async def generate_audio_endpoint(audio_request: AudioRequest):
 @app.get("/sources/{session_id}")
 async def get_sources(session_id: str, query: str):
     """Get retrieved documents for a query"""
-    if not initialization_status["initialized"]:
-        raise HTTPException(
-            status_code=503, 
-            detail=f"System not initialized: {initialization_status['error']}"
-        )
+    if not initialization_status["initialized"] or not aura_core:
+        raise HTTPException(status_code=503, detail="System not ready")
     
     try:
         sources = aura_core.get_retrieved_documents(query)
@@ -292,23 +290,18 @@ async def clear_session_memory(session_id: str):
 @app.post("/rebuild-index")
 async def rebuild_index(background_tasks: BackgroundTasks):
     """Trigger index rebuild"""
-    if not initialization_status["initialized"]:
-        raise HTTPException(
-            status_code=503, 
-            detail="System not initialized"
-        )
+    if not initialization_status["initialized"] or not aura_core:
+        raise HTTPException(status_code=503, detail="System not ready")
     
     def rebuild_task():
         global build_progress, initialization_status
         build_progress = {"current": 0, "total": 0, "file": "", "completed": False}
         
         try:
-            # Remove existing index
             import shutil
             if os.path.exists(CONFIG["faiss_index_dir"]):
                 shutil.rmtree(CONFIG["faiss_index_dir"])
             
-            # Rebuild
             success = aura_core.build_or_load_vector_db(
                 progress_callback=update_build_progress
             )
